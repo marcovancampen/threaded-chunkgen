@@ -1,0 +1,13 @@
+{
+  "itemGroup.threadedchunkgen": "Example Mod Tab",
+  "block.threadedchunkgen.example_block": "Example Block",
+  "item.threadedchunkgen.example_item": "Example Item",
+
+  "threadedchunkgen.configuration.title": "ThreadedChunkGen Configs",
+  "threadedchunkgen.configuration.section.threadedchunkgen.common.toml": "ThreadedChunkGen Configs",
+  "threadedchunkgen.configuration.section.threadedchunkgen.common.toml.title": "ThreadedChunkGen Configs",
+  "threadedchunkgen.configuration.items": "Item List",
+  "threadedchunkgen.configuration.logDirtBlock": "Log Dirt Block",
+  "threadedchunkgen.configuration.magicNumberIntroduction": "Magic Number Text",
+  "threadedchunkgen.configuration.magicNumber": "Magic Number"
+}
