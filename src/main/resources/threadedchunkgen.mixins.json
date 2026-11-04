@@ -1,12 +1,19 @@
 {
-  "required": false,
+  "required": true,
   "minVersion": "0.8",
   "package": "com.marko.threadedchunkgen.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": [],
+  "mixins": [
+    "ChunkAccessMixin",
+    "ChunkGeneratorStructureStateMixin",
+    "ChunkMapMixin",
+    "ChunkStatusTasksMixin",
+    "ChunkTaskPriorityQueueSorterMixin"
+  ],
   "client": [],
   "server": [],
   "injectors": {
     "defaultRequire": 1
   }
 }
+

@@ -10,6 +10,6 @@ public class ThreadedChunkGen {
     public static final Logger LOGGER = LogUtils.getLogger();
 
     public ThreadedChunkGen() {
-        LOGGER.info("ThreadedChunkGen initialized: Mixins temporarily DISABLED (Vanilla Baseline mode).");
+        LOGGER.info("ThreadedChunkGen initialized: Multi-threaded chunk generation mixins ACTIVE.");
     }
 }
