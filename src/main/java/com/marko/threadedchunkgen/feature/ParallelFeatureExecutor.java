@@ -144,8 +144,39 @@ public final class ParallelFeatureExecutor {
             List<ChunkAccess> chunks
     ) {
         CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> future = new CompletableFuture<>();
-        scheduleFeatureGeneration(status, executor, level, generator, structureManager, lightEngine, chunks, future, 0);
+        scheduleFeatureGeneration(status, executor, level, generator, structureManager, lightEngine, chunks, null, future, 0);
         return future;
+    }
+
+    private static int[] computeLocks(ChunkPos chunkPos) {
+        int[] rawLocks = new int[9];
+        int idx = 0;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                rawLocks[idx++] = ChunkPos.hash(chunkPos.x + dx, chunkPos.z + dz) & (FEATURE_LOCKS.length - 1);
+            }
+        }
+        Arrays.sort(rawLocks);
+
+        int distinctCount = 0;
+        for (int i = 0; i < rawLocks.length; i++) {
+            if (i == 0 || rawLocks[i] != rawLocks[i - 1]) {
+                distinctCount++;
+            }
+        }
+
+        if (distinctCount == rawLocks.length) {
+            return rawLocks;
+        }
+
+        int[] locks = new int[distinctCount];
+        int dIdx = 0;
+        for (int i = 0; i < rawLocks.length; i++) {
+            if (i == 0 || rawLocks[i] != rawLocks[i - 1]) {
+                locks[dIdx++] = rawLocks[i];
+            }
+        }
+        return locks;
     }
 
     private static void scheduleFeatureGeneration(
@@ -156,35 +187,14 @@ public final class ParallelFeatureExecutor {
             StructureTemplateManager structureManager,
             ThreadedLevelLightEngine lightEngine,
             List<ChunkAccess> chunks,
+            int[] cachedLocks,
             CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> future,
             int attempts
     ) {
         net.minecraft.Util.backgroundExecutor().execute(() -> {
             ChunkAccess chunk = chunks.get(chunks.size() / 2);
             ChunkPos chunkPos = chunk.getPos();
-            int[] rawLocks = new int[9];
-            int idx = 0;
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    rawLocks[idx++] = ChunkPos.hash(chunkPos.x + dx, chunkPos.z + dz) & (FEATURE_LOCKS.length - 1);
-                }
-            }
-            Arrays.sort(rawLocks);
-
-            int distinctCount = 0;
-            for (int i = 0; i < rawLocks.length; i++) {
-                if (i == 0 || rawLocks[i] != rawLocks[i - 1]) {
-                    distinctCount++;
-                }
-            }
-
-            int[] locks = new int[distinctCount];
-            int dIdx = 0;
-            for (int i = 0; i < rawLocks.length; i++) {
-                if (i == 0 || rawLocks[i] != rawLocks[i - 1]) {
-                    locks[dIdx++] = rawLocks[i];
-                }
-            }
+            int[] locks = cachedLocks != null ? cachedLocks : computeLocks(chunkPos);
 
             int acquired = 0;
             boolean allAcquired = true;
@@ -206,9 +216,7 @@ public final class ParallelFeatureExecutor {
                 for (int i = acquired - 1; i >= 0; i--) {
                     FEATURE_LOCKS[locks[i]].unlock();
                 }
-                net.minecraft.Util.backgroundExecutor().execute(() ->
-                        scheduleFeatureGeneration(status, executor, level, generator, structureManager, lightEngine, chunks, future, attempts + 1)
-                );
+                scheduleFeatureGeneration(status, executor, level, generator, structureManager, lightEngine, chunks, locks, future, attempts + 1);
                 return;
             }
 
