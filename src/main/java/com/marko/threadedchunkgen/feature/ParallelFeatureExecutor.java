@@ -1,0 +1,148 @@
+package com.marko.threadedchunkgen.feature;
+
+import com.mojang.datafixers.util.Either;
+import net.minecraft.server.level.ChunkHolder;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ThreadedLevelLightEngine;
+import net.minecraft.server.level.WorldGenRegion;
+import net.minecraft.util.profiling.jfr.JvmProfiler;
+import net.minecraft.util.profiling.jfr.callback.ProfiledDuration;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.chunk.ChunkStatus;
+import net.minecraft.world.level.chunk.ProtoChunk;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.blending.Blender;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
+
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Stream;
+
+public final class ParallelFeatureExecutor {
+
+    private static final ReentrantLock[] FEATURE_LOCKS = Stream
+            .generate(ReentrantLock::new)
+            .limit(4096)
+            .toArray(ReentrantLock[]::new);
+
+    private static final int MAX_TRYLOCK_ATTEMPTS = 5;
+
+    private ParallelFeatureExecutor() {}
+
+    public static CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> generateFeatures(
+            ChunkStatus status,
+            Executor executor,
+            ServerLevel level,
+            ChunkGenerator generator,
+            StructureTemplateManager structureManager,
+            ThreadedLevelLightEngine lightEngine,
+            List<ChunkAccess> chunks
+    ) {
+        CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> future = new CompletableFuture<>();
+        scheduleFeatureGeneration(status, executor, level, generator, structureManager, lightEngine, chunks, future, 0);
+        return future;
+    }
+
+    private static void scheduleFeatureGeneration(
+            ChunkStatus status,
+            Executor executor,
+            ServerLevel level,
+            ChunkGenerator generator,
+            StructureTemplateManager structureManager,
+            ThreadedLevelLightEngine lightEngine,
+            List<ChunkAccess> chunks,
+            CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> future,
+            int attempts
+    ) {
+        net.minecraft.Util.backgroundExecutor().execute(() -> {
+            ChunkAccess chunk = chunks.get(chunks.size() / 2);
+            ChunkPos chunkPos = chunk.getPos();
+            int[] rawLocks = new int[9];
+            int idx = 0;
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    rawLocks[idx++] = ChunkPos.hash(chunkPos.x + dx, chunkPos.z + dz) & (FEATURE_LOCKS.length - 1);
+                }
+            }
+            Arrays.sort(rawLocks);
+
+            int distinctCount = 0;
+            for (int i = 0; i < rawLocks.length; i++) {
+                if (i == 0 || rawLocks[i] != rawLocks[i - 1]) {
+                    distinctCount++;
+                }
+            }
+
+            int[] locks = new int[distinctCount];
+            int dIdx = 0;
+            for (int i = 0; i < rawLocks.length; i++) {
+                if (i == 0 || rawLocks[i] != rawLocks[i - 1]) {
+                    locks[dIdx++] = rawLocks[i];
+                }
+            }
+
+            int acquired = 0;
+            boolean allAcquired = true;
+            for (int i = 0; i < locks.length; i++) {
+                if (attempts < MAX_TRYLOCK_ATTEMPTS) {
+                    if (FEATURE_LOCKS[locks[i]].tryLock()) {
+                        acquired++;
+                    } else {
+                        allAcquired = false;
+                        break;
+                    }
+                } else {
+                    FEATURE_LOCKS[locks[i]].lock();
+                    acquired++;
+                }
+            }
+
+            if (!allAcquired) {
+                for (int i = acquired - 1; i >= 0; i--) {
+                    FEATURE_LOCKS[locks[i]].unlock();
+                }
+                net.minecraft.Util.backgroundExecutor().execute(() ->
+                        scheduleFeatureGeneration(status, executor, level, generator, structureManager, lightEngine, chunks, future, attempts + 1)
+                );
+                return;
+            }
+
+            ProfiledDuration profiledDuration = JvmProfiler.INSTANCE.onChunkGenerate(chunkPos, level.dimension(), status.toString());
+            try {
+                Heightmap.primeHeightmaps(
+                        chunk,
+                        EnumSet.of(
+                                Heightmap.Types.MOTION_BLOCKING,
+                                Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                                Heightmap.Types.OCEAN_FLOOR,
+                                Heightmap.Types.WORLD_SURFACE
+                        )
+                );
+                WorldGenRegion region = new WorldGenRegion(level, chunks, status, 1);
+                generator.applyBiomeDecoration(region, chunk, level.structureManager().forWorldGenRegion(region));
+                Blender.generateBorderTicks(region, chunk);
+                if (chunk instanceof ProtoChunk protoChunk) {
+                    if (!protoChunk.getStatus().isOrAfter(status)) {
+                        protoChunk.setStatus(status);
+                    }
+                }
+                future.complete(Either.left(chunk));
+            } catch (Throwable t) {
+                future.completeExceptionally(t);
+            } finally {
+                if (profiledDuration != null) {
+                    profiledDuration.finish();
+                }
+                for (int i = acquired - 1; i >= 0; i--) {
+                    FEATURE_LOCKS[locks[i]].unlock();
+                }
+            }
+        });
+    }
+}
