@@ -9,9 +9,7 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.ChunkStatus;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
@@ -23,8 +21,6 @@ import java.util.function.Function;
 
 @Mixin(ChunkStatus.class)
 public abstract class ChunkStatusMixin {
-
-    @Shadow @Final public static ChunkStatus FEATURES;
 
     @Inject(
             method = "generate",
@@ -41,9 +37,39 @@ public abstract class ChunkStatusMixin {
             List<ChunkAccess> chunks,
             CallbackInfoReturnable<CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>>> cir
     ) {
-        if ((Object) this == FEATURES) {
+        Object self = this;
+        if (self == ChunkStatus.STRUCTURE_STARTS) {
+            cir.setReturnValue(ParallelFeatureExecutor.generateStructureStarts(
+                    ChunkStatus.STRUCTURE_STARTS,
+                    level,
+                    generator,
+                    structureManager,
+                    chunks
+            ));
+        } else if (self == ChunkStatus.STRUCTURE_REFERENCES) {
+            cir.setReturnValue(ParallelFeatureExecutor.generateStructureReferences(
+                    ChunkStatus.STRUCTURE_REFERENCES,
+                    level,
+                    generator,
+                    chunks
+            ));
+        } else if (self == ChunkStatus.SURFACE) {
+            cir.setReturnValue(ParallelFeatureExecutor.generateSurface(
+                    ChunkStatus.SURFACE,
+                    level,
+                    generator,
+                    chunks
+            ));
+        } else if (self == ChunkStatus.CARVERS) {
+            cir.setReturnValue(ParallelFeatureExecutor.generateCarvers(
+                    ChunkStatus.CARVERS,
+                    level,
+                    generator,
+                    chunks
+            ));
+        } else if (self == ChunkStatus.FEATURES) {
             cir.setReturnValue(ParallelFeatureExecutor.generateFeatures(
-                    FEATURES,
+                    ChunkStatus.FEATURES,
                     executor,
                     level,
                     generator,

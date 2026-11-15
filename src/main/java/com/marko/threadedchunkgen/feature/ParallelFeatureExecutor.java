@@ -12,6 +12,7 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.ChunkStatus;
 import net.minecraft.world.level.chunk.ProtoChunk;
+import net.minecraft.world.level.levelgen.GenerationStep;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
@@ -34,6 +35,104 @@ public final class ParallelFeatureExecutor {
     private static final int MAX_TRYLOCK_ATTEMPTS = 5;
 
     private ParallelFeatureExecutor() {}
+
+    public static CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> generateStructureStarts(
+            ChunkStatus status,
+            ServerLevel level,
+            ChunkGenerator generator,
+            StructureTemplateManager structureManager,
+            List<ChunkAccess> chunks
+    ) {
+        return runSimpleAsync(status, level, chunks, chunk -> {
+            if (level.getServer().getWorldData().worldGenOptions().generateStructures()) {
+                generator.createStructures(
+                        level.registryAccess(),
+                        level.getChunkSource().getGeneratorState(),
+                        level.structureManager(),
+                        chunk,
+                        structureManager
+                );
+            }
+            level.onStructureStartsAvailable(chunk);
+        });
+    }
+
+    public static CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> generateStructureReferences(
+            ChunkStatus status,
+            ServerLevel level,
+            ChunkGenerator generator,
+            List<ChunkAccess> chunks
+    ) {
+        return runSimpleAsync(status, level, chunks, chunk -> {
+            WorldGenRegion region = new WorldGenRegion(level, chunks, status, -1);
+            generator.createReferences(region, level.structureManager().forWorldGenRegion(region), chunk);
+        });
+    }
+
+    public static CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> generateSurface(
+            ChunkStatus status,
+            ServerLevel level,
+            ChunkGenerator generator,
+            List<ChunkAccess> chunks
+    ) {
+        return runSimpleAsync(status, level, chunks, chunk -> {
+            WorldGenRegion region = new WorldGenRegion(level, chunks, status, 0);
+            generator.buildSurface(
+                    region,
+                    level.structureManager().forWorldGenRegion(region),
+                    level.getChunkSource().randomState(),
+                    chunk
+            );
+        });
+    }
+
+    public static CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> generateCarvers(
+            ChunkStatus status,
+            ServerLevel level,
+            ChunkGenerator generator,
+            List<ChunkAccess> chunks
+    ) {
+        return runSimpleAsync(status, level, chunks, chunk -> {
+            WorldGenRegion region = new WorldGenRegion(level, chunks, status, 0);
+            if (chunk instanceof ProtoChunk protoChunk) {
+                Blender.addAroundOldChunksCarvingMaskFilter(region, protoChunk);
+            }
+            generator.applyCarvers(
+                    region,
+                    level.getSeed(),
+                    level.getChunkSource().randomState(),
+                    level.getBiomeManager(),
+                    level.structureManager().forWorldGenRegion(region),
+                    chunk,
+                    GenerationStep.Carving.AIR
+            );
+        });
+    }
+
+    private static CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> runSimpleAsync(
+            ChunkStatus status,
+            ServerLevel level,
+            List<ChunkAccess> chunks,
+            java.util.function.Consumer<ChunkAccess> work
+    ) {
+        ChunkAccess chunk = chunks.get(chunks.size() / 2);
+        return CompletableFuture.supplyAsync(() -> {
+            ProfiledDuration profiledDuration = JvmProfiler.INSTANCE.onChunkGenerate(chunk.getPos(), level.dimension(), status.toString());
+            try {
+                work.accept(chunk);
+                if (chunk instanceof ProtoChunk protoChunk) {
+                    if (!protoChunk.getStatus().isOrAfter(status)) {
+                        protoChunk.setStatus(status);
+                    }
+                }
+                return Either.<ChunkAccess, ChunkHolder.ChunkLoadingFailure>left(chunk);
+            } finally {
+                if (profiledDuration != null) {
+                    profiledDuration.finish();
+                }
+            }
+        }, net.minecraft.Util.backgroundExecutor());
+    }
 
     public static CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> generateFeatures(
             ChunkStatus status,
