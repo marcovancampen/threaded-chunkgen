@@ -1,25 +1,33 @@
+# ThreadedChunkGen
 
-Installation information
-=======
+A lightweight, server-side mod that parallelizes Minecraft world generation stages across CPU worker threads for faster chunk generation.
 
-This template repository can be directly cloned to get you started with a new
-mod. Simply create a new repository cloned from this one, by following the
-instructions provided by [GitHub](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template).
+## Features
 
-Once you have your clone, simply open the repository in the IDE of your choice. The usual recommendation for an IDE is either IntelliJ IDEA or Eclipse.
+- **Parallel Worldgen Stages:** Offloads `STRUCTURE_STARTS`, `SURFACE`, `CARVERS`, and `FEATURES` from the serial `"worldgen"` mailbox onto `Util.backgroundExecutor()`, while keeping `STRUCTURE_REFERENCES` synchronous to avoid scheduling overhead.
+- **Deadlock-Free 3×3 Spatial Locking:** Feature generation uses a fixed 4,096 bucket `ReentrantLock` array with globally sorted 3×3 chunk lock ordering and non-blocking `tryLock()` retries, preventing cross-chunk race conditions and deadlocks.
+- **Modpack Friendly:** Uses MixinExtras `@WrapMethod` with zero `@Overwrite`s, preserving compatibility with ModernFix, Terralith, Biomes O' Plenty, Oh The Biomes We've Gone, and large modpacks like All the Mods 10.
+- **Server-Side Only (Client-Optional):** Only required on the server (or in singleplayer for the integrated server).
 
-If at any point you are missing libraries in your IDE, or you've run into problems you can
-run `gradlew --refresh-dependencies` to refresh the local cache. `gradlew clean` to reset everything 
-{this does not affect your code} and then start the process again.
+## Branches
 
-Mapping Names:
-============
-By default, the MDK is configured to use the official mapping names from Mojang for methods and fields 
-in the Minecraft codebase. These names are covered by a specific license. All modders should be aware of this
-license. For the latest license text, refer to the mapping file itself, or the reference copy here:
-https://github.com/NeoForged/NeoForm/blob/main/Mojang.md
+- `main` — NeoForge **1.21.1**
+- `1.20.1` — Forge **1.20.1**
 
-Additional Resources: 
-==========
-Community Documentation: https://docs.neoforged.net/  
-NeoForged Discord: https://discord.neoforged.net/
+## Recommended JVM Flags (Heavy Modpacks)
+
+Multi-threaded chunk generation increases allocation throughput on worker threads. If you are running large modpacks (such as ATM10) on **Java 21**, Generational ZGC is recommended to eliminate multi-second Old Gen GC pauses:
+
+```text
+-XX:+UseZGC -XX:+ZGenerational -XX:+AlwaysPreTouch -XX:+DisableExplicitGC
+```
+
+## Building from Source
+
+Requires **Java 21** (for `main` / NeoForge 1.21.1):
+
+```bash
+./gradlew build
+```
+
+The compiled JAR will be output to `build/libs/threadedchunkgen-neoforge-1.21.1-<version>.jar`.
