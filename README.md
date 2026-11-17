@@ -1,25 +1,25 @@
+# ThreadedChunkGen
 
-Installation information
-=======
+A lightweight, server-side mod that parallelizes Minecraft world generation stages across CPU worker threads for dramatically faster chunk generation and smoother exploration.
 
-This template repository can be directly cloned to get you started with a new
-mod. Simply create a new repository cloned from this one, by following the
-instructions provided by [GitHub](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template).
+## Features
 
-Once you have your clone, simply open the repository in the IDE of your choice. The usual recommendation for an IDE is either IntelliJ IDEA or Eclipse.
+- **Parallel Worldgen Stages:** Offloads `STRUCTURE_STARTS`, `STRUCTURE_REFERENCES`, `SURFACE`, `CARVERS`, and `FEATURES` onto `Util.backgroundExecutor()`.
+- **Deadlock-Free 3×3 Spatial Locking:** Feature generation uses a fixed 4,096-bucket striped `ReentrantLock` array with globally sorted 3×3 chunk lock ordering and non-blocking `tryLock()` retries, preventing cross-chunk race conditions and deadlocks.
+- **Modpack Friendly:** Tested with large Forge 1.20.1 modpacks including All the Mods 9 (ATM9).
+- **Server-Side Only (Client-Optional):** Only required on the server (or in singleplayer for the integrated server). Vanilla or unmodded clients can join without installing it.
 
-If at any point you are missing libraries in your IDE, or you've run into problems you can
-run `gradlew --refresh-dependencies` to refresh the local cache. `gradlew clean` to reset everything 
-{this does not affect your code} and then start the process again.
+## Branches
 
-Mapping Names:
-============
-By default, the MDK is configured to use the official mapping names from Mojang for methods and fields 
-in the Minecraft codebase. These names are covered by a specific license. All modders should be aware of this
-license. For the latest license text, refer to the mapping file itself, or the reference copy here:
-https://github.com/NeoForged/NeoForm/blob/main/Mojang.md
+- `main` — NeoForge **1.21.1**
+- `1.20.1` — Forge **1.20.1**
 
-Additional Resources: 
-==========
-Community Documentation: https://docs.neoforged.net/  
-NeoForged Discord: https://discord.neoforged.net/
+## Building from Source
+
+Requires **Java 17** (for `1.20.1` / Forge):
+
+```bash
+./gradlew build
+```
+
+The compiled JAR will be output to `build/libs/threadedchunkgen-forge-1.20.1-<version>.jar`.
